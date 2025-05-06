@@ -161,7 +161,7 @@
 
     <script>
         const API_BASE_URL = 'https://prices.azure.com/api/retail/prices';
-        const API_VERSION = '2023-01-01-preview'; // Using a recent preview for broader compatibility
+        const API_VERSION = '2023-01-01-preview';
 
         let vmConfigurations = [];
         let vmCounter = 0;
@@ -184,57 +184,69 @@
         // --- Utility Functions ---
         function showGlobalLoader(show) { globalLoader.style.display = show ? 'inline-block' : 'none'; }
         
-        function showError(message) {
+        function showError(message, errorObject = null) {
             let displayMessage = message;
-            // Provide more specific guidance for "Failed to fetch"
             if (message && message.toLowerCase().includes("failed to fetch")) {
-                displayMessage = "Network Error: Failed to fetch data from Azure API. This could be due to a network connectivity issue, or a CORS (Cross-Origin Resource Sharing) policy if you're running this HTML file locally (from file:///...). Please check your internet connection and the browser's developer console (Network tab) for more details. If running locally, try using a simple local web server.";
+                displayMessage = "Network Error: Failed to fetch data from Azure API. This could be due to a network connectivity issue, or a CORS (Cross-Origin Resource Sharing) policy if you're running this HTML file locally (from file:///...) or from certain hosting providers. Please check your internet connection and the browser's developer console (Network tab) for more details. If running locally, try using a simple local web server.";
             }
             errorMessageElem.textContent = displayMessage;
             errorBanner.style.display = 'block';
-            console.error("Original error details:", message); // Log the original error for technical users
+            console.error("Error displayed to user:", displayMessage);
+            if (errorObject) {
+                console.error("Full error object:", errorObject); // Log the full error object
+            } else {
+                console.error("Original error message:", message);
+            }
         }
 
         function clearError() { errorBanner.style.display = 'none'; }
 
-        // Cache for API responses to avoid refetching for dropdowns
         const apiCache = new Map();
 
         async function fetchAzureData(filterKey, filterValue) {
             if (apiCache.has(filterKey)) {
+                console.log("Using cached data for key:", filterKey);
                 return apiCache.get(filterKey);
             }
             showGlobalLoader(true);
-            clearError(); // Clear previous errors before a new fetch attempt
+            clearError();
             const url = `${API_BASE_URL}?api-version=${API_VERSION}&$filter=${encodeURIComponent(filterValue)}`;
-            console.log("Fetching URL:", url); // Log the URL being fetched for debugging
+            console.log("Attempting to fetch URL:", url);
             try {
-                const response = await fetch(url);
+                const response = await fetch(url, {
+                    method: 'GET',
+                    mode: 'cors', // Explicitly set CORS mode
+                    cache: 'no-cache' // Disable caching during debugging
+                });
+
+                console.log(`Response status for ${url}: ${response.status}`);
                 if (!response.ok) {
-                    // Attempt to get more detailed error text from the response if possible
                     let errorResponseText = "No additional error details from server.";
                     try {
                         errorResponseText = await response.text();
+                        console.error("Error response text from server:", errorResponseText);
                     } catch (textError) {
                         console.warn("Could not read error response text:", textError);
                     }
-                    throw new Error(`API request failed with status ${response.status}: ${errorResponseText}. Filter: ${filterValue}`);
+                    const err = new Error(`API request failed with status ${response.status}: ${errorResponseText}. Filter: ${filterValue}`);
+                    err.status = response.status; // Attach status to error object
+                    throw err;
                 }
                 const data = await response.json();
-                console.log("API Response for filter", filterValue, ":", data.Items ? data.Items.length : '0', "items received initially."); // Log count of items
+                console.log("API Response for filter", filterValue, ":", data.Items ? data.Items.length : '0', "items received initially.");
                 
-                let allItems = data.Items || []; // Ensure allItems is an array
+                let allItems = data.Items || [];
                 let nextPageLink = data.NextPageLink;
                 let pagesFetched = 1;
-                const MAX_PAGES = 5; // Limit pages for performance in client-side
+                const MAX_PAGES = 5;
 
-                // Handle pagination to fetch more data if available
                 while (nextPageLink && pagesFetched < MAX_PAGES) {
                     console.log(`Fetching next page (${pagesFetched + 1}): ${nextPageLink}`);
-                    const nextPageResponse = await fetch(nextPageLink);
+                    // For subsequent page fetches, we might not need to repeat all options if not needed
+                    const nextPageResponse = await fetch(nextPageLink, { mode: 'cors', cache: 'no-cache' }); 
                     if (!nextPageResponse.ok) {
                         console.error(`Failed to fetch next page: ${nextPageResponse.status}`);
-                        break; // Stop pagination on error
+                        break;
                     }
                     const nextPageData = await nextPageResponse.json();
                     if (nextPageData.Items && nextPageData.Items.length > 0) {
@@ -247,14 +259,13 @@
                      console.warn(`Reached max pages (${MAX_PAGES}) for filter ${filterValue}. Some data might be missing.`);
                 }
 
-                apiCache.set(filterKey, allItems); // Cache the combined results
+                apiCache.set(filterKey, allItems);
                 showGlobalLoader(false);
                 return allItems;
             } catch (error) {
                 showGlobalLoader(false);
-                // The error message is now constructed by the new showError logic
-                showError(error.message); // Pass the original error message
-                return []; // Return empty array on error to prevent subsequent issues
+                showError(error.message, error); // Pass the full error object to showError
+                return [];
             }
         }
         
@@ -264,7 +275,6 @@
             const div = document.createElement('div');
             div.classList.add('resource-item');
             div.setAttribute('id', `vm-config-${vmId}`);
-            // HTML structure for VM configuration row
             div.innerHTML = `
                 <div class="flex justify-between items-center mb-3">
                     <h4 class="text-lg font-semibold text-blue-600">Virtual Machine ${id + 1} <div id="vmLoader-${vmId}" class="loader inline-loader" style="display: none;"></div></h4>
@@ -307,49 +317,44 @@
             `;
             vmListDiv.appendChild(div);
             
-            // Get references to the select elements and input
             const seriesSelectEl = div.querySelector(`#vmSeries-${vmId}`);
             const instanceSelectEl = div.querySelector(`#vmInstance-${vmId}`);
             const osSelectEl = div.querySelector(`#vmOs-${vmId}`);
             const sqlSelectEl = div.querySelector(`#vmSql-${vmId}`);
             const quantityInputEl = div.querySelector(`#vmQuantity-${vmId}`);
 
-            // Add event listeners for changes
             seriesSelectEl.addEventListener('change', async () => {
-                updateVmConfiguration(vmId); // Update config with current selections
-                await populateVmInstanceDropdown(vmId, regionSelect.value, seriesSelectEl.value); // Populate instance dropdown
-                calculateTotalCostAfterDelay(); // Recalculate cost
+                updateVmConfiguration(vmId); 
+                await populateVmInstanceDropdown(vmId, regionSelect.value, seriesSelectEl.value); 
+                calculateTotalCostAfterDelay(); 
             });
             instanceSelectEl.addEventListener('change', () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); });
             osSelectEl.addEventListener('change', () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); });
             sqlSelectEl.addEventListener('change', () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); });
             quantityInputEl.addEventListener('input', () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); });
 
-            // Event listeners for remove and add disk buttons
             div.querySelector('.remove-button').addEventListener('click', () => removeVm(vmId));
             div.querySelector('.add-disk-button').addEventListener('click', () => addDiskToVm(vmId));
             
-            addDiskToVm(vmId); // Add a default OS disk to the new VM row
-            populateVmSeriesDropdown(vmId, regionSelect.value); // Populate VM series dropdown for the new VM row
+            addDiskToVm(vmId); 
+            populateVmSeriesDropdown(vmId, regionSelect.value); 
         }
 
         async function populateVmSeriesDropdown(vmId, region) {
             const vmLoader = document.getElementById(`vmLoader-${vmId}`);
             const seriesSelect = document.getElementById(`vmSeries-${vmId}`);
-            seriesSelect.innerHTML = '<option value="">Loading series...</option>'; // Set loading text
-            seriesSelect.disabled = true; // Disable dropdown during load
-            if(vmLoader) vmLoader.style.display = 'inline-block'; // Show loader
+            seriesSelect.innerHTML = '<option value="">Loading series...</option>'; 
+            seriesSelect.disabled = true; 
+            if(vmLoader) vmLoader.style.display = 'inline-block'; 
 
-            // Define filter for fetching VM series data
             const filterValue = `armRegionName eq '${region}' and serviceName eq 'Virtual Machines' and priceType eq 'Consumption' and contains(unitOfMeasure, 'Hour')`;
-            const cacheKey = `vmseries-${region}`; // Cache key for this request
-            const items = await fetchAzureData(cacheKey, filterValue); // Fetch data
+            const cacheKey = `vmseries-${region}`; 
+            const items = await fetchAzureData(cacheKey, filterValue); 
 
-            const seriesSet = new Set(); // Use a Set to store unique series names
+            const seriesSet = new Set(); 
             if (items && items.length > 0) {
                 items.forEach(item => {
                     let seriesName = null;
-                    // Attempt to extract series name from productName or skuName
                     if (item.productName && item.productName.toLowerCase().includes(' series')) {
                         seriesName = item.productName.replace("Virtual Machines ", "").replace("VMs ", "");
                     } else if (item.skuName) {
@@ -360,7 +365,6 @@
                             if(match && match[1]) seriesName = match[1].toUpperCase() + " Family"; else seriesName = potentialSeries;
                         }
                     }
-                    // Normalize and validate the extracted series name
                     if (seriesName && !seriesName.toLowerCase().includes('spot') && !seriesName.toLowerCase().includes('low priority') && !seriesName.toLowerCase().includes('windows') && !seriesName.toLowerCase().includes('linux')) {
                         seriesName = seriesName.replace(/[^a-zA-Z0-9_ v\-]/g, '').trim();
                         if (seriesName.length > 2 && seriesName.length < 50) {
@@ -370,33 +374,31 @@
                 });
             }
             
-            seriesSelect.innerHTML = '<option value="">Select series...</option>'; // Reset dropdown
-            const sortedSeries = Array.from(seriesSet).sort(); // Sort series names alphabetically
+            seriesSelect.innerHTML = '<option value="">Select series...</option>'; 
+            const sortedSeries = Array.from(seriesSet).sort(); 
             sortedSeries.forEach(series => {
                 const option = document.createElement('option');
                 option.value = series;
                 option.textContent = series;
                 seriesSelect.appendChild(option);
             });
-            seriesSelect.disabled = false; // Enable dropdown
-            if(vmLoader) vmLoader.style.display = 'none'; // Hide loader
+            seriesSelect.disabled = false; 
+            if(vmLoader) vmLoader.style.display = 'none'; 
 
-            // If series are found, auto-select the first one and populate instance dropdown
             if (sortedSeries.length > 0) {
                 const vmConfig = vmConfigurations.find(vm => vm.id === vmId);
-                // Check if the current VM config still exists (it might have been removed)
                 if (vmConfig && (!vmConfig.series || !sortedSeries.includes(vmConfig.series))) {
                     seriesSelect.value = sortedSeries[0];
                 } else if (vmConfig && vmConfig.series) {
-                    seriesSelect.value = vmConfig.series; // Restore previous selection if valid
+                    seriesSelect.value = vmConfig.series; 
                 }
                 updateVmConfiguration(vmId);
                 await populateVmInstanceDropdown(vmId, region, seriesSelect.value);
             } else {
-                 document.getElementById(`vmInstance-${vmId}`).innerHTML = '<option value="">No series found</option>';
+                 document.getElementById(`vmInstance-${vmId}`).innerHTML = '<option value="">No series found for this region or filter.</option>';
                  document.getElementById(`vmInstance-${vmId}`).disabled = true;
-                 updateVmConfiguration(vmId); // Update config even if no series
-                 calculateTotalCostAfterDelay(); // Recalculate if needed
+                 updateVmConfiguration(vmId); 
+                 calculateTotalCostAfterDelay(); 
             }
         }
 
@@ -407,7 +409,7 @@
             instanceSelect.disabled = true;
             if(vmLoader) vmLoader.style.display = 'inline-block';
 
-            if (!seriesFamily) { // If no series is selected, don't try to load instances
+            if (!seriesFamily) { 
                 instanceSelect.innerHTML = '<option value="">Select series first...</option>';
                 if(vmLoader) vmLoader.style.display = 'none';
                 updateVmConfiguration(vmId);
@@ -415,18 +417,14 @@
                 return;
             }
 
-            // Heuristic to create a search term for the selected series family
             const seriesSearchTerm = seriesFamily.replace(" Series", "").replace(" Family", "").replace("_", " ").split(" ")[0]; 
-
-            // Define filter for fetching VM instances
             const filterValue = `armRegionName eq '${region}' and serviceName eq 'Virtual Machines' and priceType eq 'Consumption' and contains(unitOfMeasure, 'Hour') and (contains(productName, '${seriesSearchTerm}') or contains(skuName, '${seriesSearchTerm}'))`;
             const cacheKey = `vminstances-${region}-${seriesFamily.replace(/\s/g, '_')}`;
             const items = await fetchAzureData(cacheKey, filterValue);
 
-            const instanceSet = new Set(); // Use Set for unique instance SKUs
+            const instanceSet = new Set(); 
             if (items && items.length > 0) {
                 items.forEach(item => {
-                    // Validate and add instance SKU
                     if (item.skuName && !item.skuName.toLowerCase().includes(' spot') && !item.skuName.toLowerCase().includes(' low priority')) {
                         if (item.meterName && (item.meterName.toLowerCase().includes("hour") || item.meterName.toLowerCase().includes(item.skuName.split('_').pop().toLowerCase() ))) {
                              instanceSet.add(item.skuName);
@@ -435,18 +433,17 @@
                 });
             }
             
-            instanceSelect.innerHTML = '<option value="">Select instance...</option>'; // Reset dropdown
-            const sortedInstances = Array.from(instanceSet).sort(); // Sort instance SKUs
+            instanceSelect.innerHTML = '<option value="">Select instance...</option>'; 
+            const sortedInstances = Array.from(instanceSet).sort(); 
             sortedInstances.forEach(instanceSku => {
                 const option = document.createElement('option');
                 option.value = instanceSku;
                 option.textContent = instanceSku;
                 instanceSelect.appendChild(option);
             });
-            instanceSelect.disabled = false; // Enable dropdown
-            if(vmLoader) vmLoader.style.display = 'none'; // Hide loader
+            instanceSelect.disabled = false; 
+            if(vmLoader) vmLoader.style.display = 'none'; 
             
-            // Auto-select first instance or restore previous selection
             if (sortedInstances.length > 0) {
                  const vmConfig = vmConfigurations.find(vm => vm.id === vmId);
                  if (vmConfig && (!vmConfig.instanceSize || !sortedInstances.includes(vmConfig.instanceSize))) {
@@ -454,17 +451,18 @@
                  } else if (vmConfig && vmConfig.instanceSize) {
                     instanceSelect.value = vmConfig.instanceSize;
                  }
+            } else {
+                instanceSelect.innerHTML = '<option value="">No instances found for this series.</option>';
             }
-            updateVmConfiguration(vmId); // Update VM config with the selected instance
-            calculateTotalCostAfterDelay(); // Recalculate total cost
+            updateVmConfiguration(vmId); 
+            calculateTotalCostAfterDelay(); 
         }
         
-        let diskCounter = 0; // Counter for unique disk IDs
+        let diskCounter = 0; 
         function addDiskToVm(vmId) { 
             const diskListDiv = document.getElementById(`diskList-${vmId}`);
-            const diskConfigId = `disk-${vmId}-${diskCounter++}`; // Generate unique ID for the disk
+            const diskConfigId = `disk-${vmId}-${diskCounter++}`; 
             const diskDiv = document.createElement('div');
-            // HTML structure for a disk configuration row
             diskDiv.classList.add('disk-item', 'grid', 'grid-cols-1', 'md:grid-cols-4', 'gap-2', 'items-center', 'p-2', 'bg-gray-100', 'rounded');
             diskDiv.setAttribute('id', `disk-config-${diskConfigId}`);
             diskDiv.innerHTML = `
@@ -480,24 +478,20 @@
             `;
             diskListDiv.appendChild(diskDiv);
 
-            // Function to update VM configuration and recalculate cost
             const updateAndCalc = () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); };
-            // Add event listeners for disk inputs
             diskDiv.querySelector('.disk-type-select').addEventListener('change', updateAndCalc);
             diskDiv.querySelector('.disk-size-input').addEventListener('input', updateAndCalc);
             diskDiv.querySelector('.disk-quantity-input').addEventListener('input', updateAndCalc);
             diskDiv.querySelector('.remove-disk-button').addEventListener('click', (e) => {
-                e.target.closest('.disk-item').remove(); // Remove disk row from UI
-                updateAndCalc(); // Update config and recalculate
+                e.target.closest('.disk-item').remove(); 
+                updateAndCalc(); 
             });
-            updateVmConfiguration(vmId); // Update VM config after adding disk
-            calculateTotalCostAfterDelay(); // Recalculate cost
+            updateVmConfiguration(vmId); 
+            calculateTotalCostAfterDelay(); 
         }
 
-        // Function to add a new VM configuration row
         function addVm() {
-            const vmId = `vm-${vmCounter}`; // Generate unique ID for the VM
-            // Add new VM configuration to the global array
+            const vmId = `vm-${vmCounter}`; 
             vmConfigurations.push({
                 id: vmId,
                 series: '', 
@@ -508,23 +502,20 @@
                 disks: [],
                 cost: 0
             });
-            createVmConfigElement(vmCounter); // Create the HTML elements for this VM
+            createVmConfigElement(vmCounter); 
             vmCounter++;
         }
         
-        // Function to update a specific VM's configuration in the global state
         function updateVmConfiguration(vmId) {
             const vmConfig = vmConfigurations.find(vm => vm.id === vmId);
-            if (!vmConfig) return; // Exit if VM config not found
+            if (!vmConfig) return; 
 
-            // Update VM properties from form inputs
             vmConfig.series = document.getElementById(`vmSeries-${vmId}`).value;
             vmConfig.instanceSize = document.getElementById(`vmInstance-${vmId}`).value;
             vmConfig.os = document.getElementById(`vmOs-${vmId}`).value;
             vmConfig.sql = document.getElementById(`vmSql-${vmId}`).value;
             vmConfig.quantity = parseInt(document.getElementById(`vmQuantity-${vmId}`).value) || 1;
             
-            // Update disk configurations for this VM
             vmConfig.disks = [];
             const diskItems = document.querySelectorAll(`#diskList-${vmId} .disk-item`);
             diskItems.forEach(diskItem => {
@@ -537,57 +528,49 @@
             });
         }
 
-        // Function to remove a VM configuration row
         function removeVm(vmIdToRemove) {
-            vmConfigurations = vmConfigurations.filter(vm => vm.id !== vmIdToRemove); // Remove from global state
+            vmConfigurations = vmConfigurations.filter(vm => vm.id !== vmIdToRemove); 
             const vmElement = document.getElementById(`vm-config-${vmIdToRemove}`);
-            if (vmElement) vmElement.remove(); // Remove from UI
-            calculateTotalCostAfterDelay(); // Recalculate cost
+            if (vmElement) vmElement.remove(); 
+            calculateTotalCostAfterDelay(); 
         }
 
-        let calculationTimeout; // Timeout ID for debouncing cost calculation
-        // Debounce function to delay cost calculation
+        let calculationTimeout; 
         function calculateTotalCostAfterDelay() {
             clearTimeout(calculationTimeout);
-            calculationTimeout = setTimeout(calculateTotalCost, 1000); // Delay of 1 second
+            calculationTimeout = setTimeout(calculateTotalCost, 1000); 
         }
 
-        // Main function to calculate the total estimated cost
         async function calculateTotalCost() {
-            showGlobalLoader(true); // Show global loader
+            showGlobalLoader(true); 
             let totalCost = 0;
-            let breakdownHtml = ''; // HTML for cost breakdown section
+            let breakdownHtml = ''; 
             const selectedRegion = regionSelect.value;
 
-            // Iterate over each VM configuration
             for (const vmConfig of vmConfigurations) {
                 let currentVmBaseCost = 0;
                 let vmProductDescription = `VM: ${vmConfig.quantity}x ${vmConfig.instanceSize || 'N/A'} (${vmConfig.os})`;
 
-                // Calculate cost only if an instance size is selected
                 if (vmConfig.instanceSize) {
-                    // Define filter for fetching VM price
                     let vmFilter = `armRegionName eq '${selectedRegion}' and serviceName eq 'Virtual Machines' and skuName eq '${vmConfig.instanceSize}' and priceType eq 'Consumption'`;
                     
                     if (vmConfig.os === 'Windows') {
                         vmFilter += ` and contains(productName, 'Windows')`;
                     } else {
-                        vmFilter += ` and (not contains(productName, 'Windows') or productName eq null)`; // Try to get base Linux price
+                        vmFilter += ` and (not contains(productName, 'Windows') or productName eq null)`; 
                     }
                     
                     const cacheKey = `vmprice-${selectedRegion}-${vmConfig.instanceSize}-${vmConfig.os}`;
-                    const vmPrices = await fetchAzureData(cacheKey, vmFilter); // Fetch VM prices
+                    const vmPrices = await fetchAzureData(cacheKey, vmFilter); 
                     
                     let foundVmPrice = null;
                     if (vmPrices && vmPrices.length > 0) {
-                        // Find the most relevant price entry
                         foundVmPrice = vmPrices.find(p => 
                             p.unitOfMeasure && p.unitOfMeasure.toLowerCase().includes('hour') &&
                             p.meterName && !p.meterName.toLowerCase().includes('spot') &&
                             !p.meterName.toLowerCase().includes('low priority') &&
-                            p.type === 'Consumption' && p.retailPrice > 0 // Ensure there's a price
+                            p.type === 'Consumption' && p.retailPrice > 0 
                         );
-                         // Fallback logic if specific match not found
                          if (!foundVmPrice && vmPrices.length === 1 && vmPrices[0].retailPrice > 0) foundVmPrice = vmPrices[0];
                          else if (!foundVmPrice) {
                             foundVmPrice = vmPrices.find(p => p.type === 'Consumption' && p.retailPrice > 0 && p.unitOfMeasure && p.unitOfMeasure.toLowerCase().includes('hour'));
@@ -595,15 +578,15 @@
                     }
 
                     if (foundVmPrice && foundVmPrice.retailPrice) {
-                        currentVmBaseCost = foundVmPrice.retailPrice * 730; // Convert hourly to monthly
+                        currentVmBaseCost = foundVmPrice.retailPrice * 730; 
                         vmProductDescription += ` @ $${foundVmPrice.retailPrice.toFixed(5)}/hr (Meter: ${foundVmPrice.meterName})`;
                     } else {
-                        showError(`Price not found for VM: ${vmConfig.instanceSize} in ${selectedRegion} (OS: ${vmConfig.os}). Using $0. Check API response in console.`);
+                        // showError(`Price not found for VM: ${vmConfig.instanceSize} in ${selectedRegion} (OS: ${vmConfig.os}). Using $0. Check API response in console.`);
+                        console.warn(`Price not found for VM: ${vmConfig.instanceSize} in ${selectedRegion} (OS: ${vmConfig.os}). Using $0. Check API response in console.`);
                         vmProductDescription += ` (Price not found for ${vmConfig.instanceSize})`;
                     }
                 }
                 
-                // Add simplified SQL Server cost (mock prices)
                 let sqlCost = 0;
                 if (vmConfig.sql === 'SQL Standard') sqlCost = 200;
                 if (vmConfig.sql === 'SQL Enterprise') sqlCost = 750;
@@ -612,46 +595,41 @@
 
                 let vmTotalCost = currentVmBaseCost * vmConfig.quantity;
 
-                // --- Disks for this VM (Simplified pricing - needs improvement for accuracy) ---
                 let totalDisksCostForVm = 0;
                 for (const disk of vmConfig.disks) { 
-                    let diskPricePerGb = 0; // Illustrative per-GB cost
-                    // This section remains highly simplified. Accurate disk pricing requires fetching specific disk SKUs (P10, E10 etc.)
+                    let diskPricePerGb = 0; 
                     if (disk.type.startsWith('Premium')) diskPricePerGb = 0.15; 
                     else if (disk.type.startsWith('StandardSSD')) diskPricePerGb = 0.08; 
                     else if (disk.type.startsWith('Standard_LRS')) diskPricePerGb = 0.04;
-                    else if (disk.type.startsWith('UltraSSD')) diskPricePerGb = 0.12; // Base cost, IOPS/Throughput are extra and complex
+                    else if (disk.type.startsWith('UltraSSD')) diskPricePerGb = 0.12; 
 
                     let diskCostThisType = diskPricePerGb * disk.size * disk.quantity;
-                    disk.cost = diskCostThisType; // Store cost on disk object
+                    disk.cost = diskCostThisType; 
                     totalDisksCostForVm += diskCostThisType;
                     vmProductDescription += `, ${disk.quantity}x ${disk.size}GB ${disk.type}`;
                 }
                 vmTotalCost += totalDisksCostForVm;
-                vmConfig.cost = vmTotalCost; // Store total cost for this VM configuration
+                vmConfig.cost = vmTotalCost; 
 
                 breakdownHtml += `<div class="cost-item"><span>${vmProductDescription}:</span> <strong>$${vmTotalCost.toFixed(2)}</strong></div>`;
                 totalCost += vmTotalCost;
             }
 
-            // --- Calculate costs for Additional Services (Public IPs, VPN, Backup, Bandwidth) ---
-            // Public IP Cost
             const numPublicIps = parseInt(publicIpInput.value) || 0;
             if (numPublicIps > 0) {
                 const ipFilter = `armRegionName eq '${selectedRegion}' and serviceFamily eq 'Networking' and meterName eq 'Static IP Address Hours' and type eq 'Consumption'`; 
                 const ipCacheKey = `publicip-${selectedRegion}-static`;
                 const ipPrices = await fetchAzureData(ipCacheKey, ipFilter);
-                let ipPricePerHour = 0.004; // Fallback/Illustrative for Static IP Address Hours
+                let ipPricePerHour = 0.004; 
                 if (ipPrices.length > 0) {
                     const found = ipPrices.find(p => p.retailPrice > 0); 
                     if(found) ipPricePerHour = found.retailPrice;
                 }
-                const publicIpCost = numPublicIps * ipPricePerHour * 730; // Convert to monthly
+                const publicIpCost = numPublicIps * ipPricePerHour * 730; 
                 breakdownHtml += `<div class="cost-item"><span>Public IPs (${numPublicIps} Static):</span> <strong>$${publicIpCost.toFixed(2)}</strong></div>`;
                 totalCost += publicIpCost;
             }
 
-            // VPN Gateway Cost
             const vpnType = vpnGatewaySelect.value;
             if (vpnType !== 'None') {
                 const vpnFilter = `armRegionName eq '${selectedRegion}' and serviceName eq 'VPN Gateway' and skuName eq '${vpnType}' and type eq 'Consumption' and contains(meterName, 'Gateway Hours')`;
@@ -659,8 +637,8 @@
                 const vpnPrices = await fetchAzureData(vpnCacheKey, vpnFilter);
                 let vpnCostMonthly = 0;
                 if (vpnPrices.length > 0 && vpnPrices[0].retailPrice) {
-                    vpnCostMonthly = vpnPrices[0].retailPrice * 730; // Convert hourly to monthly
-                } else { // Fallback mock prices
+                    vpnCostMonthly = vpnPrices[0].retailPrice * 730; 
+                } else { 
                     if (vpnType === 'Basic') vpnCostMonthly = 29;
                     else if (vpnType === 'VpnGw1') vpnCostMonthly = 139;
                     else if (vpnType === 'VpnGw2') vpnCostMonthly = 389;
@@ -670,13 +648,12 @@
                 totalCost += vpnCostMonthly;
             }
             
-            // Azure Backup Cost (Simplified)
             const backupInstances = parseInt(backupInstancesInput.value) || 0;
             if (backupInstances > 0) {
                 const backupFilter = `armRegionName eq '${selectedRegion}' and serviceName eq 'Backup' and contains(meterName, 'Protected Instance') and type eq 'Consumption' and contains(meterName, '<=50 GB')`;
                 const backupCacheKey = `backup-${selectedRegion}-lt50gb`;
                 const backupPrices = await fetchAzureData(backupCacheKey, backupFilter);
-                let backupCostPerInstance = 5; // Fallback for instances <=50 GB
+                let backupCostPerInstance = 5; 
                 if (backupPrices.length > 0 && backupPrices[0].retailPrice) {
                     backupCostPerInstance = backupPrices[0].retailPrice;
                 }
@@ -685,18 +662,15 @@
                 totalCost += totalBackupCost;
             }
 
-            // Bandwidth Cost (Simplified)
             const bandwidthGb = parseInt(bandwidthInput.value) || 0;
             if (bandwidthGb > 0) {
-                let effectiveBandwidthGb = Math.max(0, bandwidthGb - 100); // Assume first 100GB free
+                let effectiveBandwidthGb = Math.max(0, bandwidthGb - 100); 
                 let bandwidthCost = 0;
                 if (effectiveBandwidthGb > 0) {
-                    // Filter for outbound data transfer, Zone 1 is a common default.
                     const bwFilter = `(armRegionName eq '${selectedRegion}' or serviceFamily eq 'Networking') and serviceName eq 'Networking' and meterName eq 'Data Transfer Out (GB)' and type eq 'Consumption' and not contains(productName, 'Availability Zone') and not contains(productName, 'Inter-continental')`;
                     const bwCacheKey = `bandwidth-out-gb-${selectedRegion}-zone1`;
                     const bwPrices = await fetchAzureData(bwCacheKey, bwFilter);
-                    let pricePerGb = 0.087; // Fallback for Zone 1, after free tier
-                    // Heuristic to find standard outbound price
+                    let pricePerGb = 0.087; 
                     const foundPrice = bwPrices.find(p => p.retailPrice < 0.1 && p.retailPrice > 0.01 && p.unitOfMeasure === '1 GB' && (p.productName.includes("Zone 1") || !p.productName.includes("Zone "))); 
                     if (foundPrice) pricePerGb = foundPrice.retailPrice;
                     
@@ -706,17 +680,14 @@
                 totalCost += bandwidthCost;
             }
 
-            // Update UI with cost breakdown and total cost
             costBreakdownDiv.innerHTML = breakdownHtml || '<p class="text-gray-500">Configure resources or check API responses.</p>';
             totalCostElem.textContent = `$${totalCost.toFixed(2)}`;
-            showGlobalLoader(false); // Hide global loader
+            showGlobalLoader(false); 
         }
 
         // --- Event Listeners & Initial Setup ---
-        // Event listener for region selection change
         regionSelect.addEventListener('change', () => {
-            apiCache.clear(); // Clear API cache as prices vary by region
-            // Repopulate VM series/instance dropdowns for all existing VM configurations
+            apiCache.clear(); 
             vmConfigurations.forEach(vmConfig => {
                 const seriesSelectElem = document.getElementById(`vmSeries-${vmConfig.id}`);
                 const instanceSelectElem = document.getElementById(`vmInstance-${vmConfig.id}`);
@@ -724,17 +695,16 @@
                 if (instanceSelectElem) instanceSelectElem.innerHTML = '<option value="">Select series first...</option>';
                 populateVmSeriesDropdown(vmConfig.id, regionSelect.value);
             });
-            calculateTotalCostAfterDelay(); // Recalculate cost
+            calculateTotalCostAfterDelay(); 
         });
 
-        // Event listeners for other global inputs
         addVmButton.addEventListener('click', addVm);
         publicIpInput.addEventListener('input', calculateTotalCostAfterDelay);
         vpnGatewaySelect.addEventListener('change', calculateTotalCostAfterDelay);
         backupInstancesInput.addEventListener('input', calculateTotalCostAfterDelay);
         bandwidthInput.addEventListener('input', calculateTotalCostAfterDelay);
 
-        addVm(); // Add one VM configuration row by default on page load
+        addVm(); 
     </script>
 
 </body>
