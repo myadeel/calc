@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Cost Calculator (Live API with Dropdowns)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+        }
+        .calculator-container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        .section-title {
+            font-size: 1.5rem; font-weight: 600; color: #1e3a8a;
+            margin-bottom: 1.5rem; padding-bottom: 0.5rem;
+            border-bottom: 2px solid #3b82f6;
+        }
+        .form-select, .form-input, .form-number {
+            border-radius: 8px; border-color: #cbd5e1;
+            padding: 0.75rem 1rem; transition: all 0.3s ease; width: 100%;
+            background-color: #fff; /* Ensure select background is white */
+        }
+        .form-select:disabled, .form-input:disabled, .form-number:disabled {
+            background-color: #f3f4f6; /* Lighter background for disabled */
+            cursor: not-allowed;
+        }
+        .form-select:focus, .form-input:focus, .form-number:focus {
+            border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+            outline: none;
+        }
+        label { font-weight: 500; color: #374151; margin-bottom: 0.5rem; display: block; }
+        .cost-summary { background-color: #eef2ff; padding: 1.5rem; border-radius: 8px; margin-top: 2rem; }
+        .cost-summary h3 { font-size: 1.25rem; font-weight: 600; color: #1e3a8a; margin-bottom: 1rem; }
+        .cost-item { display: flex; justify-content: space-between; padding: 0.5rem 0; font-size: 0.95rem; color: #4b5563; }
+        .cost-item strong { color: #1e40af; }
+        .total-cost { font-size: 1.5rem; font-weight: 700; color: #1e3a8a; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #93c5fd; }
+        .info-banner, .error-banner { padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid; }
+        .info-banner { background-color: #fffbeb; color: #b45309; border-color: #fde68a; }
+        .error-banner { background-color: #fee2e2; color: #b91c1c; border-color: #fecaca; display: none; }
+        .add-button { background-color: #2563eb; color: white; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 500; transition: background-color 0.3s ease; }
+        .add-button:hover { background-color: #1d4ed8; }
+        .remove-button { background-color: #ef4444; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.8rem; font-weight: 500; transition: background-color 0.3s ease; }
+        .remove-button:hover { background-color: #dc2626; }
+        .resource-item { border: 1px solid #e5e7eb; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; background-color: #f9fafb; }
+        .loader {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6;
+            border-radius: 50%; width: 24px; height: 24px;
+            animation: spin 1s linear infinite; margin-left: 10px; display: none;
+        }
+        .inline-loader {
+            width: 16px; height: 16px; border-width: 2px; margin-left: 5px; display: inline-block;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="calculator-container">
+        <div class="flex items-center justify-center mb-2">
+            <h1 class="text-3xl font-bold text-blue-700">Azure Cost Estimator (Live API)</h1>
+            <div id="globalLoader" class="loader ml-4"></div>
+        </div>
+        <p class="text-center text-gray-600 mb-6">Fetching live price estimates from Azure Retail Prices API</p>
+
+        <div class="info-banner">
+            <p><strong>Important:</strong> This calculator uses the Azure Retail Prices API for estimates. Prices are subject to change and based on Pay-As-You-Go. For precise quotes and other pricing models (reservations, hybrid benefits), consult the official Azure Pricing Calculator and Azure portal.</p>
+        </div>
+        <div id="errorBanner" class="error-banner">
+            <p id="errorMessage"></p>
+        </div>
+
+        <div class="mb-8">
+            <h2 class="section-title">1. General Configuration</h2>
+            <label for="region">Azure Region:</label>
+            <select id="region" class="form-select">
+                <option value="eastus">East US</option>
+                <option value="eastus2">East US 2</option>
+                <option value="westus">West US</option>
+                <option value="westus2">West US 2</option>
+                <option value="westus3">West US 3</option>
+                <option value="centralus">Central US</option>
+                <option value="northcentralus">North Central US</option>
+                <option value="southcentralus">South Central US</option>
+                <option value="westeurope">West Europe</option>
+                <option value="northeurope">North Europe</option>
+                <option value="uksouth">UK South</option>
+                <option value="ukwest">UK West</option>
+                <option value="francecentral">France Central</option>
+                <option value="germanywestcentral">Germany West Central</option>
+                <option value="australiaeast">Australia East</option>
+                <option value="australiasoutheast">Australia Southeast</option>
+                <option value="japaneast">Japan East</option>
+                <option value="japanwest">Japan West</option>
+                <option value="koreacentral">Korea Central</option>
+                <option value="southeastasia">Southeast Asia</option>
+                <option value="eastasia">East Asia</option>
+                <option value="centralindia">Central India</option>
+                <option value="southindia">South India</option>
+                <option value="canadacentral">Canada Central</option>
+                <option value="canadaeast">Canada East</option>
+                <option value="brazilsouth">Brazil South</option>
+            </select>
+        </div>
+
+        <div class="mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="section-title !mb-0 !pb-0 !border-0">2. Virtual Machines</h2>
+                <button id="addVmButton" class="add-button">Add VM</button>
+            </div>
+            <div id="vmList" class="space-y-6"></div>
+        </div>
+        
+        <div class="mb-8">
+            <h2 class="section-title">3. Additional Services</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label for="publicIp">Public IP Addresses (Quantity):</label>
+                    <input type="number" id="publicIp" class="form-number" value="0" min="0">
+                </div>
+                <div>
+                    <label for="vpnGateway">VPN Gateway Type:</label>
+                    <select id="vpnGateway" class="form-select">
+                        <option value="None">None</option>
+                        <option value="Basic">Basic</option>
+                        <option value="VpnGw1">VpnGw1</option>
+                        <option value="VpnGw2">VpnGw2</option>
+                        <option value="VpnGw3">VpnGw3</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="backupInstances">Azure Backup (Instances to Backup):</label>
+                    <input type="number" id="backupInstances" class="form-number" value="0" min="0" placeholder="No. of instances">
+                </div>
+                 <div>
+                    <label for="bandwidth">Estimated Outbound Bandwidth (GB/month):</label>
+                    <input type="number" id="bandwidth" class="form-number" value="100" min="0">
+                </div>
+            </div>
+        </div>
+
+        <div class="cost-summary">
+            <h3>Estimated Monthly Cost (USD)</h3>
+            <div id="costBreakdown">
+                <p class="text-gray-500">Configure resources to see cost breakdown.</p>
+            </div>
+            <div class="cost-item total-cost">
+                <span>Total Estimated Monthly Cost:</span>
+                <strong id="totalCost">$0.00</strong>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'https://prices.azure.com/api/retail/prices';
+        const API_VERSION = '2023-01-01-preview'; // Using a recent preview for broader compatibility
+
+        let vmConfigurations = [];
+        let vmCounter = 0;
+        const globalLoader = document.getElementById('globalLoader');
+        const errorBanner = document.getElementById('errorBanner');
+        const errorMessageElem = document.getElementById('errorMessage');
+
+        const regionSelect = document.getElementById('region');
+        const addVmButton = document.getElementById('addVmButton');
+        const vmListDiv = document.getElementById('vmList');
+        
+        const publicIpInput = document.getElementById('publicIp');
+        const vpnGatewaySelect = document.getElementById('vpnGateway');
+        const backupInstancesInput = document.getElementById('backupInstances');
+        const bandwidthInput = document.getElementById('bandwidth');
+
+        const costBreakdownDiv = document.getElementById('costBreakdown');
+        const totalCostElem = document.getElementById('totalCost');
+
+        // --- Utility Functions ---
+        function showGlobalLoader(show) { globalLoader.style.display = show ? 'inline-block' : 'none'; }
+        
+        function showError(message) {
+            let displayMessage = message;
+            // Provide more specific guidance for "Failed to fetch"
+            if (message && message.toLowerCase().includes("failed to fetch")) {
+                displayMessage = "Network Error: Failed to fetch data from Azure API. This could be due to a network connectivity issue, or a CORS (Cross-Origin Resource Sharing) policy if you're running this HTML file locally (from file:///...). Please check your internet connection and the browser's developer console (Network tab) for more details. If running locally, try using a simple local web server.";
+            }
+            errorMessageElem.textContent = displayMessage;
+            errorBanner.style.display = 'block';
+            console.error("Original error details:", message); // Log the original error for technical users
+        }
+
+        function clearError() { errorBanner.style.display = 'none'; }
+
+        // Cache for API responses to avoid refetching for dropdowns
+        const apiCache = new Map();
+
+        async function fetchAzureData(filterKey, filterValue) {
+            if (apiCache.has(filterKey)) {
+                return apiCache.get(filterKey);
+            }
+            showGlobalLoader(true);
+            clearError(); // Clear previous errors before a new fetch attempt
+            const url = `${API_BASE_URL}?api-version=${API_VERSION}&$filter=${encodeURIComponent(filterValue)}`;
+            console.log("Fetching URL:", url); // Log the URL being fetched for debugging
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    // Attempt to get more detailed error text from the response if possible
+                    let errorResponseText = "No additional error details from server.";
+                    try {
+                        errorResponseText = await response.text();
+                    } catch (textError) {
+                        console.warn("Could not read error response text:", textError);
+                    }
+                    throw new Error(`API request failed with status ${response.status}: ${errorResponseText}. Filter: ${filterValue}`);
+                }
+                const data = await response.json();
+                console.log("API Response for filter", filterValue, ":", data.Items ? data.Items.length : '0', "items received initially."); // Log count of items
+                
+                let allItems = data.Items || []; // Ensure allItems is an array
+                let nextPageLink = data.NextPageLink;
+                let pagesFetched = 1;
+                const MAX_PAGES = 5; // Limit pages for performance in client-side
+
+                // Handle pagination to fetch more data if available
+                while (nextPageLink && pagesFetched < MAX_PAGES) {
+                    console.log(`Fetching next page (${pagesFetched + 1}): ${nextPageLink}`);
+                    const nextPageResponse = await fetch(nextPageLink);
+                    if (!nextPageResponse.ok) {
+                        console.error(`Failed to fetch next page: ${nextPageResponse.status}`);
+                        break; // Stop pagination on error
+                    }
+                    const nextPageData = await nextPageResponse.json();
+                    if (nextPageData.Items && nextPageData.Items.length > 0) {
+                        allItems = allItems.concat(nextPageData.Items);
+                    }
+                    nextPageLink = nextPageData.NextPageLink;
+                    pagesFetched++;
+                }
+                if (nextPageLink && pagesFetched >= MAX_PAGES) {
+                     console.warn(`Reached max pages (${MAX_PAGES}) for filter ${filterValue}. Some data might be missing.`);
+                }
+
+                apiCache.set(filterKey, allItems); // Cache the combined results
+                showGlobalLoader(false);
+                return allItems;
+            } catch (error) {
+                showGlobalLoader(false);
+                // The error message is now constructed by the new showError logic
+                showError(error.message); // Pass the original error message
+                return []; // Return empty array on error to prevent subsequent issues
+            }
+        }
+        
+        // --- VM Related Functions ---
+        function createVmConfigElement(id) {
+            const vmId = `vm-${id}`;
+            const div = document.createElement('div');
+            div.classList.add('resource-item');
+            div.setAttribute('id', `vm-config-${vmId}`);
+            // HTML structure for VM configuration row
+            div.innerHTML = `
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="text-lg font-semibold text-blue-600">Virtual Machine ${id + 1} <div id="vmLoader-${vmId}" class="loader inline-loader" style="display: none;"></div></h4>
+                    <button class="remove-button" data-vm-id="${vmId}">Remove VM</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                        <label for="vmSeries-${vmId}">VM Series Family:</label>
+                        <select id="vmSeries-${vmId}" class="form-select vm-series-select" data-vm-id="${vmId}" disabled><option value="">Loading series...</option></select>
+                    </div>
+                    <div>
+                        <label for="vmInstance-${vmId}">VM Instance Size:</label>
+                        <select id="vmInstance-${vmId}" class="form-select vm-instance-select" data-vm-id="${vmId}" disabled><option value="">Select series first...</option></select>
+                    </div>
+                    <div>
+                        <label for="vmOs-${vmId}">Operating System:</label>
+                        <select id="vmOs-${vmId}" class="form-select vm-os-select" data-vm-id="${vmId}">
+                            <option value="Linux">Linux</option>
+                            <option value="Windows">Windows</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="vmSql-${vmId}">SQL Server (Simplified Add-on):</label>
+                        <select id="vmSql-${vmId}" class="form-select vm-sql-select" data-vm-id="${vmId}">
+                            <option value="None">None</option>
+                            <option value="SQL Standard">SQL Server Standard</option>
+                            <option value="SQL Enterprise">SQL Server Enterprise</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="vmQuantity-${vmId}">Quantity:</label>
+                        <input type="number" id="vmQuantity-${vmId}" class="form-number vm-quantity-input" value="1" min="1" data-vm-id="${vmId}">
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <h5 class="font-medium text-gray-700 mb-2">Managed Disks:</h5>
+                    <div id="diskList-${vmId}" class="space-y-3"></div>
+                    <button class="add-disk-button mt-2 text-sm text-blue-600 hover:text-blue-800 font-medium" data-vm-id="${vmId}">+ Add Disk</button>
+                </div>
+            `;
+            vmListDiv.appendChild(div);
+            
+            // Get references to the select elements and input
+            const seriesSelectEl = div.querySelector(`#vmSeries-${vmId}`);
+            const instanceSelectEl = div.querySelector(`#vmInstance-${vmId}`);
+            const osSelectEl = div.querySelector(`#vmOs-${vmId}`);
+            const sqlSelectEl = div.querySelector(`#vmSql-${vmId}`);
+            const quantityInputEl = div.querySelector(`#vmQuantity-${vmId}`);
+
+            // Add event listeners for changes
+            seriesSelectEl.addEventListener('change', async () => {
+                updateVmConfiguration(vmId); // Update config with current selections
+                await populateVmInstanceDropdown(vmId, regionSelect.value, seriesSelectEl.value); // Populate instance dropdown
+                calculateTotalCostAfterDelay(); // Recalculate cost
+            });
+            instanceSelectEl.addEventListener('change', () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); });
+            osSelectEl.addEventListener('change', () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); });
+            sqlSelectEl.addEventListener('change', () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); });
+            quantityInputEl.addEventListener('input', () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); });
+
+            // Event listeners for remove and add disk buttons
+            div.querySelector('.remove-button').addEventListener('click', () => removeVm(vmId));
+            div.querySelector('.add-disk-button').addEventListener('click', () => addDiskToVm(vmId));
+            
+            addDiskToVm(vmId); // Add a default OS disk to the new VM row
+            populateVmSeriesDropdown(vmId, regionSelect.value); // Populate VM series dropdown for the new VM row
+        }
+
+        async function populateVmSeriesDropdown(vmId, region) {
+            const vmLoader = document.getElementById(`vmLoader-${vmId}`);
+            const seriesSelect = document.getElementById(`vmSeries-${vmId}`);
+            seriesSelect.innerHTML = '<option value="">Loading series...</option>'; // Set loading text
+            seriesSelect.disabled = true; // Disable dropdown during load
+            if(vmLoader) vmLoader.style.display = 'inline-block'; // Show loader
+
+            // Define filter for fetching VM series data
+            const filterValue = `armRegionName eq '${region}' and serviceName eq 'Virtual Machines' and priceType eq 'Consumption' and contains(unitOfMeasure, 'Hour')`;
+            const cacheKey = `vmseries-${region}`; // Cache key for this request
+            const items = await fetchAzureData(cacheKey, filterValue); // Fetch data
+
+            const seriesSet = new Set(); // Use a Set to store unique series names
+            if (items && items.length > 0) {
+                items.forEach(item => {
+                    let seriesName = null;
+                    // Attempt to extract series name from productName or skuName
+                    if (item.productName && item.productName.toLowerCase().includes(' series')) {
+                        seriesName = item.productName.replace("Virtual Machines ", "").replace("VMs ", "");
+                    } else if (item.skuName) {
+                        const parts = item.skuName.split('_');
+                        if (parts.length > 1) {
+                            let potentialSeries = parts.slice(1).join('_');
+                            const match = potentialSeries.match(/^([A-Z]+[0-9]*s?_v[0-9]+)/i) || potentialSeries.match(/^([A-Z]+[0-9]*s?)/i);
+                            if(match && match[1]) seriesName = match[1].toUpperCase() + " Family"; else seriesName = potentialSeries;
+                        }
+                    }
+                    // Normalize and validate the extracted series name
+                    if (seriesName && !seriesName.toLowerCase().includes('spot') && !seriesName.toLowerCase().includes('low priority') && !seriesName.toLowerCase().includes('windows') && !seriesName.toLowerCase().includes('linux')) {
+                        seriesName = seriesName.replace(/[^a-zA-Z0-9_ v\-]/g, '').trim();
+                        if (seriesName.length > 2 && seriesName.length < 50) {
+                             seriesSet.add(seriesName);
+                        }
+                    }
+                });
+            }
+            
+            seriesSelect.innerHTML = '<option value="">Select series...</option>'; // Reset dropdown
+            const sortedSeries = Array.from(seriesSet).sort(); // Sort series names alphabetically
+            sortedSeries.forEach(series => {
+                const option = document.createElement('option');
+                option.value = series;
+                option.textContent = series;
+                seriesSelect.appendChild(option);
+            });
+            seriesSelect.disabled = false; // Enable dropdown
+            if(vmLoader) vmLoader.style.display = 'none'; // Hide loader
+
+            // If series are found, auto-select the first one and populate instance dropdown
+            if (sortedSeries.length > 0) {
+                const vmConfig = vmConfigurations.find(vm => vm.id === vmId);
+                // Check if the current VM config still exists (it might have been removed)
+                if (vmConfig && (!vmConfig.series || !sortedSeries.includes(vmConfig.series))) {
+                    seriesSelect.value = sortedSeries[0];
+                } else if (vmConfig && vmConfig.series) {
+                    seriesSelect.value = vmConfig.series; // Restore previous selection if valid
+                }
+                updateVmConfiguration(vmId);
+                await populateVmInstanceDropdown(vmId, region, seriesSelect.value);
+            } else {
+                 document.getElementById(`vmInstance-${vmId}`).innerHTML = '<option value="">No series found</option>';
+                 document.getElementById(`vmInstance-${vmId}`).disabled = true;
+                 updateVmConfiguration(vmId); // Update config even if no series
+                 calculateTotalCostAfterDelay(); // Recalculate if needed
+            }
+        }
+
+        async function populateVmInstanceDropdown(vmId, region, seriesFamily) {
+            const vmLoader = document.getElementById(`vmLoader-${vmId}`);
+            const instanceSelect = document.getElementById(`vmInstance-${vmId}`);
+            instanceSelect.innerHTML = '<option value="">Loading instances...</option>';
+            instanceSelect.disabled = true;
+            if(vmLoader) vmLoader.style.display = 'inline-block';
+
+            if (!seriesFamily) { // If no series is selected, don't try to load instances
+                instanceSelect.innerHTML = '<option value="">Select series first...</option>';
+                if(vmLoader) vmLoader.style.display = 'none';
+                updateVmConfiguration(vmId);
+                calculateTotalCostAfterDelay();
+                return;
+            }
+
+            // Heuristic to create a search term for the selected series family
+            const seriesSearchTerm = seriesFamily.replace(" Series", "").replace(" Family", "").replace("_", " ").split(" ")[0]; 
+
+            // Define filter for fetching VM instances
+            const filterValue = `armRegionName eq '${region}' and serviceName eq 'Virtual Machines' and priceType eq 'Consumption' and contains(unitOfMeasure, 'Hour') and (contains(productName, '${seriesSearchTerm}') or contains(skuName, '${seriesSearchTerm}'))`;
+            const cacheKey = `vminstances-${region}-${seriesFamily.replace(/\s/g, '_')}`;
+            const items = await fetchAzureData(cacheKey, filterValue);
+
+            const instanceSet = new Set(); // Use Set for unique instance SKUs
+            if (items && items.length > 0) {
+                items.forEach(item => {
+                    // Validate and add instance SKU
+                    if (item.skuName && !item.skuName.toLowerCase().includes(' spot') && !item.skuName.toLowerCase().includes(' low priority')) {
+                        if (item.meterName && (item.meterName.toLowerCase().includes("hour") || item.meterName.toLowerCase().includes(item.skuName.split('_').pop().toLowerCase() ))) {
+                             instanceSet.add(item.skuName);
+                        }
+                    }
+                });
+            }
+            
+            instanceSelect.innerHTML = '<option value="">Select instance...</option>'; // Reset dropdown
+            const sortedInstances = Array.from(instanceSet).sort(); // Sort instance SKUs
+            sortedInstances.forEach(instanceSku => {
+                const option = document.createElement('option');
+                option.value = instanceSku;
+                option.textContent = instanceSku;
+                instanceSelect.appendChild(option);
+            });
+            instanceSelect.disabled = false; // Enable dropdown
+            if(vmLoader) vmLoader.style.display = 'none'; // Hide loader
+            
+            // Auto-select first instance or restore previous selection
+            if (sortedInstances.length > 0) {
+                 const vmConfig = vmConfigurations.find(vm => vm.id === vmId);
+                 if (vmConfig && (!vmConfig.instanceSize || !sortedInstances.includes(vmConfig.instanceSize))) {
+                    instanceSelect.value = sortedInstances[0];
+                 } else if (vmConfig && vmConfig.instanceSize) {
+                    instanceSelect.value = vmConfig.instanceSize;
+                 }
+            }
+            updateVmConfiguration(vmId); // Update VM config with the selected instance
+            calculateTotalCostAfterDelay(); // Recalculate total cost
+        }
+        
+        let diskCounter = 0; // Counter for unique disk IDs
+        function addDiskToVm(vmId) { 
+            const diskListDiv = document.getElementById(`diskList-${vmId}`);
+            const diskConfigId = `disk-${vmId}-${diskCounter++}`; // Generate unique ID for the disk
+            const diskDiv = document.createElement('div');
+            // HTML structure for a disk configuration row
+            diskDiv.classList.add('disk-item', 'grid', 'grid-cols-1', 'md:grid-cols-4', 'gap-2', 'items-center', 'p-2', 'bg-gray-100', 'rounded');
+            diskDiv.setAttribute('id', `disk-config-${diskConfigId}`);
+            diskDiv.innerHTML = `
+                <select class="form-select disk-type-select col-span-2 md:col-span-1" data-disk-id="${diskConfigId}">
+                    <option value="Standard_LRS">Standard HDD (LRS)</option>
+                    <option value="StandardSSD_LRS">Standard SSD (LRS)</option>
+                    <option value="Premium_LRS">Premium SSD (LRS)</option>
+                    <option value="UltraSSD_LRS">Ultra SSD (LRS)</option>
+                </select>
+                <input type="number" class="form-number disk-size-input" value="128" min="1" placeholder="Size (GB)" data-disk-id="${diskConfigId}">
+                <input type="number" class="form-number disk-quantity-input" value="1" min="1" placeholder="Qty" data-disk-id="${diskConfigId}">
+                <button class="remove-disk-button text-red-500 hover:text-red-700 text-xs justify-self-end md:justify-self-center" data-disk-id="${diskConfigId}">Remove</button>
+            `;
+            diskListDiv.appendChild(diskDiv);
+
+            // Function to update VM configuration and recalculate cost
+            const updateAndCalc = () => { updateVmConfiguration(vmId); calculateTotalCostAfterDelay(); };
+            // Add event listeners for disk inputs
+            diskDiv.querySelector('.disk-type-select').addEventListener('change', updateAndCalc);
+            diskDiv.querySelector('.disk-size-input').addEventListener('input', updateAndCalc);
+            diskDiv.querySelector('.disk-quantity-input').addEventListener('input', updateAndCalc);
+            diskDiv.querySelector('.remove-disk-button').addEventListener('click', (e) => {
+                e.target.closest('.disk-item').remove(); // Remove disk row from UI
+                updateAndCalc(); // Update config and recalculate
+            });
+            updateVmConfiguration(vmId); // Update VM config after adding disk
+            calculateTotalCostAfterDelay(); // Recalculate cost
+        }
+
+        // Function to add a new VM configuration row
+        function addVm() {
+            const vmId = `vm-${vmCounter}`; // Generate unique ID for the VM
+            // Add new VM configuration to the global array
+            vmConfigurations.push({
+                id: vmId,
+                series: '', 
+                instanceSize: '', 
+                os: 'Linux',
+                sql: 'None',
+                quantity: 1,
+                disks: [],
+                cost: 0
+            });
+            createVmConfigElement(vmCounter); // Create the HTML elements for this VM
+            vmCounter++;
+        }
+        
+        // Function to update a specific VM's configuration in the global state
+        function updateVmConfiguration(vmId) {
+            const vmConfig = vmConfigurations.find(vm => vm.id === vmId);
+            if (!vmConfig) return; // Exit if VM config not found
+
+            // Update VM properties from form inputs
+            vmConfig.series = document.getElementById(`vmSeries-${vmId}`).value;
+            vmConfig.instanceSize = document.getElementById(`vmInstance-${vmId}`).value;
+            vmConfig.os = document.getElementById(`vmOs-${vmId}`).value;
+            vmConfig.sql = document.getElementById(`vmSql-${vmId}`).value;
+            vmConfig.quantity = parseInt(document.getElementById(`vmQuantity-${vmId}`).value) || 1;
+            
+            // Update disk configurations for this VM
+            vmConfig.disks = [];
+            const diskItems = document.querySelectorAll(`#diskList-${vmId} .disk-item`);
+            diskItems.forEach(diskItem => {
+                const type = diskItem.querySelector('.disk-type-select').value;
+                const size = parseInt(diskItem.querySelector('.disk-size-input').value);
+                const quantity = parseInt(diskItem.querySelector('.disk-quantity-input').value);
+                if (size > 0 && quantity > 0) {
+                    vmConfig.disks.push({ type, size, quantity, cost: 0 });
+                }
+            });
+        }
+
+        // Function to remove a VM configuration row
+        function removeVm(vmIdToRemove) {
+            vmConfigurations = vmConfigurations.filter(vm => vm.id !== vmIdToRemove); // Remove from global state
+            const vmElement = document.getElementById(`vm-config-${vmIdToRemove}`);
+            if (vmElement) vmElement.remove(); // Remove from UI
+            calculateTotalCostAfterDelay(); // Recalculate cost
+        }
+
+        let calculationTimeout; // Timeout ID for debouncing cost calculation
+        // Debounce function to delay cost calculation
+        function calculateTotalCostAfterDelay() {
+            clearTimeout(calculationTimeout);
+            calculationTimeout = setTimeout(calculateTotalCost, 1000); // Delay of 1 second
+        }
+
+        // Main function to calculate the total estimated cost
+        async function calculateTotalCost() {
+            showGlobalLoader(true); // Show global loader
+            let totalCost = 0;
+            let breakdownHtml = ''; // HTML for cost breakdown section
+            const selectedRegion = regionSelect.value;
+
+            // Iterate over each VM configuration
+            for (const vmConfig of vmConfigurations) {
+                let currentVmBaseCost = 0;
+                let vmProductDescription = `VM: ${vmConfig.quantity}x ${vmConfig.instanceSize || 'N/A'} (${vmConfig.os})`;
+
+                // Calculate cost only if an instance size is selected
+                if (vmConfig.instanceSize) {
+                    // Define filter for fetching VM price
+                    let vmFilter = `armRegionName eq '${selectedRegion}' and serviceName eq 'Virtual Machines' and skuName eq '${vmConfig.instanceSize}' and priceType eq 'Consumption'`;
+                    
+                    if (vmConfig.os === 'Windows') {
+                        vmFilter += ` and contains(productName, 'Windows')`;
+                    } else {
+                        vmFilter += ` and (not contains(productName, 'Windows') or productName eq null)`; // Try to get base Linux price
+                    }
+                    
+                    const cacheKey = `vmprice-${selectedRegion}-${vmConfig.instanceSize}-${vmConfig.os}`;
+                    const vmPrices = await fetchAzureData(cacheKey, vmFilter); // Fetch VM prices
+                    
+                    let foundVmPrice = null;
+                    if (vmPrices && vmPrices.length > 0) {
+                        // Find the most relevant price entry
+                        foundVmPrice = vmPrices.find(p => 
+                            p.unitOfMeasure && p.unitOfMeasure.toLowerCase().includes('hour') &&
+                            p.meterName && !p.meterName.toLowerCase().includes('spot') &&
+                            !p.meterName.toLowerCase().includes('low priority') &&
+                            p.type === 'Consumption' && p.retailPrice > 0 // Ensure there's a price
+                        );
+                         // Fallback logic if specific match not found
+                         if (!foundVmPrice && vmPrices.length === 1 && vmPrices[0].retailPrice > 0) foundVmPrice = vmPrices[0];
+                         else if (!foundVmPrice) {
+                            foundVmPrice = vmPrices.find(p => p.type === 'Consumption' && p.retailPrice > 0 && p.unitOfMeasure && p.unitOfMeasure.toLowerCase().includes('hour'));
+                         }
+                    }
+
+                    if (foundVmPrice && foundVmPrice.retailPrice) {
+                        currentVmBaseCost = foundVmPrice.retailPrice * 730; // Convert hourly to monthly
+                        vmProductDescription += ` @ $${foundVmPrice.retailPrice.toFixed(5)}/hr (Meter: ${foundVmPrice.meterName})`;
+                    } else {
+                        showError(`Price not found for VM: ${vmConfig.instanceSize} in ${selectedRegion} (OS: ${vmConfig.os}). Using $0. Check API response in console.`);
+                        vmProductDescription += ` (Price not found for ${vmConfig.instanceSize})`;
+                    }
+                }
+                
+                // Add simplified SQL Server cost (mock prices)
+                let sqlCost = 0;
+                if (vmConfig.sql === 'SQL Standard') sqlCost = 200;
+                if (vmConfig.sql === 'SQL Enterprise') sqlCost = 750;
+                currentVmBaseCost += sqlCost;
+                if (sqlCost > 0) vmProductDescription += `, ${vmConfig.sql}`;
+
+                let vmTotalCost = currentVmBaseCost * vmConfig.quantity;
+
+                // --- Disks for this VM (Simplified pricing - needs improvement for accuracy) ---
+                let totalDisksCostForVm = 0;
+                for (const disk of vmConfig.disks) { 
+                    let diskPricePerGb = 0; // Illustrative per-GB cost
+                    // This section remains highly simplified. Accurate disk pricing requires fetching specific disk SKUs (P10, E10 etc.)
+                    if (disk.type.startsWith('Premium')) diskPricePerGb = 0.15; 
+                    else if (disk.type.startsWith('StandardSSD')) diskPricePerGb = 0.08; 
+                    else if (disk.type.startsWith('Standard_LRS')) diskPricePerGb = 0.04;
+                    else if (disk.type.startsWith('UltraSSD')) diskPricePerGb = 0.12; // Base cost, IOPS/Throughput are extra and complex
+
+                    let diskCostThisType = diskPricePerGb * disk.size * disk.quantity;
+                    disk.cost = diskCostThisType; // Store cost on disk object
+                    totalDisksCostForVm += diskCostThisType;
+                    vmProductDescription += `, ${disk.quantity}x ${disk.size}GB ${disk.type}`;
+                }
+                vmTotalCost += totalDisksCostForVm;
+                vmConfig.cost = vmTotalCost; // Store total cost for this VM configuration
+
+                breakdownHtml += `<div class="cost-item"><span>${vmProductDescription}:</span> <strong>$${vmTotalCost.toFixed(2)}</strong></div>`;
+                totalCost += vmTotalCost;
+            }
+
+            // --- Calculate costs for Additional Services (Public IPs, VPN, Backup, Bandwidth) ---
+            // Public IP Cost
+            const numPublicIps = parseInt(publicIpInput.value) || 0;
+            if (numPublicIps > 0) {
+                const ipFilter = `armRegionName eq '${selectedRegion}' and serviceFamily eq 'Networking' and meterName eq 'Static IP Address Hours' and type eq 'Consumption'`; 
+                const ipCacheKey = `publicip-${selectedRegion}-static`;
+                const ipPrices = await fetchAzureData(ipCacheKey, ipFilter);
+                let ipPricePerHour = 0.004; // Fallback/Illustrative for Static IP Address Hours
+                if (ipPrices.length > 0) {
+                    const found = ipPrices.find(p => p.retailPrice > 0); 
+                    if(found) ipPricePerHour = found.retailPrice;
+                }
+                const publicIpCost = numPublicIps * ipPricePerHour * 730; // Convert to monthly
+                breakdownHtml += `<div class="cost-item"><span>Public IPs (${numPublicIps} Static):</span> <strong>$${publicIpCost.toFixed(2)}</strong></div>`;
+                totalCost += publicIpCost;
+            }
+
+            // VPN Gateway Cost
+            const vpnType = vpnGatewaySelect.value;
+            if (vpnType !== 'None') {
+                const vpnFilter = `armRegionName eq '${selectedRegion}' and serviceName eq 'VPN Gateway' and skuName eq '${vpnType}' and type eq 'Consumption' and contains(meterName, 'Gateway Hours')`;
+                const vpnCacheKey = `vpn-${selectedRegion}-${vpnType}`;
+                const vpnPrices = await fetchAzureData(vpnCacheKey, vpnFilter);
+                let vpnCostMonthly = 0;
+                if (vpnPrices.length > 0 && vpnPrices[0].retailPrice) {
+                    vpnCostMonthly = vpnPrices[0].retailPrice * 730; // Convert hourly to monthly
+                } else { // Fallback mock prices
+                    if (vpnType === 'Basic') vpnCostMonthly = 29;
+                    else if (vpnType === 'VpnGw1') vpnCostMonthly = 139;
+                    else if (vpnType === 'VpnGw2') vpnCostMonthly = 389;
+                    else if (vpnType === 'VpnGw3') vpnCostMonthly = 799;
+                }
+                breakdownHtml += `<div class="cost-item"><span>VPN Gateway (${vpnType}):</span> <strong>$${vpnCostMonthly.toFixed(2)}</strong></div>`;
+                totalCost += vpnCostMonthly;
+            }
+            
+            // Azure Backup Cost (Simplified)
+            const backupInstances = parseInt(backupInstancesInput.value) || 0;
+            if (backupInstances > 0) {
+                const backupFilter = `armRegionName eq '${selectedRegion}' and serviceName eq 'Backup' and contains(meterName, 'Protected Instance') and type eq 'Consumption' and contains(meterName, '<=50 GB')`;
+                const backupCacheKey = `backup-${selectedRegion}-lt50gb`;
+                const backupPrices = await fetchAzureData(backupCacheKey, backupFilter);
+                let backupCostPerInstance = 5; // Fallback for instances <=50 GB
+                if (backupPrices.length > 0 && backupPrices[0].retailPrice) {
+                    backupCostPerInstance = backupPrices[0].retailPrice;
+                }
+                const totalBackupCost = backupInstances * backupCostPerInstance;
+                breakdownHtml += `<div class="cost-item"><span>Azure Backup (${backupInstances} instances &lt;=50GB):</span> <strong>$${totalBackupCost.toFixed(2)}</strong></div>`;
+                totalCost += totalBackupCost;
+            }
+
+            // Bandwidth Cost (Simplified)
+            const bandwidthGb = parseInt(bandwidthInput.value) || 0;
+            if (bandwidthGb > 0) {
+                let effectiveBandwidthGb = Math.max(0, bandwidthGb - 100); // Assume first 100GB free
+                let bandwidthCost = 0;
+                if (effectiveBandwidthGb > 0) {
+                    // Filter for outbound data transfer, Zone 1 is a common default.
+                    const bwFilter = `(armRegionName eq '${selectedRegion}' or serviceFamily eq 'Networking') and serviceName eq 'Networking' and meterName eq 'Data Transfer Out (GB)' and type eq 'Consumption' and not contains(productName, 'Availability Zone') and not contains(productName, 'Inter-continental')`;
+                    const bwCacheKey = `bandwidth-out-gb-${selectedRegion}-zone1`;
+                    const bwPrices = await fetchAzureData(bwCacheKey, bwFilter);
+                    let pricePerGb = 0.087; // Fallback for Zone 1, after free tier
+                    // Heuristic to find standard outbound price
+                    const foundPrice = bwPrices.find(p => p.retailPrice < 0.1 && p.retailPrice > 0.01 && p.unitOfMeasure === '1 GB' && (p.productName.includes("Zone 1") || !p.productName.includes("Zone "))); 
+                    if (foundPrice) pricePerGb = foundPrice.retailPrice;
+                    
+                    bandwidthCost = effectiveBandwidthGb * pricePerGb;
+                }
+                breakdownHtml += `<div class="cost-item"><span>Outbound Bandwidth (~${bandwidthGb} GB):</span> <strong>$${bandwidthCost.toFixed(2)}</strong></div>`;
+                totalCost += bandwidthCost;
+            }
+
+            // Update UI with cost breakdown and total cost
+            costBreakdownDiv.innerHTML = breakdownHtml || '<p class="text-gray-500">Configure resources or check API responses.</p>';
+            totalCostElem.textContent = `$${totalCost.toFixed(2)}`;
+            showGlobalLoader(false); // Hide global loader
+        }
+
+        // --- Event Listeners & Initial Setup ---
+        // Event listener for region selection change
+        regionSelect.addEventListener('change', () => {
+            apiCache.clear(); // Clear API cache as prices vary by region
+            // Repopulate VM series/instance dropdowns for all existing VM configurations
+            vmConfigurations.forEach(vmConfig => {
+                const seriesSelectElem = document.getElementById(`vmSeries-${vmConfig.id}`);
+                const instanceSelectElem = document.getElementById(`vmInstance-${vmConfig.id}`);
+                if (seriesSelectElem) seriesSelectElem.innerHTML = '<option value="">Loading series...</option>';
+                if (instanceSelectElem) instanceSelectElem.innerHTML = '<option value="">Select series first...</option>';
+                populateVmSeriesDropdown(vmConfig.id, regionSelect.value);
+            });
+            calculateTotalCostAfterDelay(); // Recalculate cost
+        });
+
+        // Event listeners for other global inputs
+        addVmButton.addEventListener('click', addVm);
+        publicIpInput.addEventListener('input', calculateTotalCostAfterDelay);
+        vpnGatewaySelect.addEventListener('change', calculateTotalCostAfterDelay);
+        backupInstancesInput.addEventListener('input', calculateTotalCostAfterDelay);
+        bandwidthInput.addEventListener('input', calculateTotalCostAfterDelay);
+
+        addVm(); // Add one VM configuration row by default on page load
+    </script>
+
+</body>
+</html>
